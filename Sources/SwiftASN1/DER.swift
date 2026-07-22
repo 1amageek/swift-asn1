@@ -39,8 +39,8 @@ extension DER {
     public static func sequence<T>(
         _ node: ASN1Node,
         identifier: ASN1Identifier,
-        _ builder: (inout ASN1NodeCollection.Iterator) throws -> T
-    ) throws -> T {
+        _ builder: (inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         guard node.identifier == identifier, case .constructed(let nodes) = node.content else {
             throw ASN1Error.unexpectedFieldType(node.identifier)
         }
@@ -70,12 +70,14 @@ extension DER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard rootNode.identifier == identifier, case .constructed(let nodes) = rootNode.content else {
             throw ASN1Error.unexpectedFieldType(rootNode.identifier)
         }
 
-        return try nodes.map { try T(derEncoded: $0) }
+        return try nodes.map { (node) throws(ASN1MetaError) -> T in
+            try T(derEncoded: node)
+        }
     }
 
     /// Parse the node as an ASN.1 SEQUENCE OF.
@@ -92,7 +94,7 @@ extension DER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         nodes: inout ASN1NodeCollection.Iterator
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard let node = nodes.next() else {
             // Not present, throw.
             throw ASN1Error.invalidASN1Object(
@@ -115,8 +117,8 @@ extension DER {
     public static func set<T>(
         _ node: ASN1Node,
         identifier: ASN1Identifier,
-        _ builder: (inout ASN1NodeCollection.Iterator) throws -> T
-    ) throws -> T {
+        _ builder: (inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         // Shhhh these two are secretly the same with identifier.
         return try sequence(node, identifier: identifier, builder)
     }
@@ -135,7 +137,7 @@ extension DER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         nodes: inout ASN1NodeCollection.Iterator
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard let node = nodes.next() else {
             // Not present, throw.
             throw ASN1Error.invalidASN1Object(
@@ -160,8 +162,11 @@ extension DER {
         of type: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> [T] {
-        try self.lazySet(of: type, identifier: identifier, rootNode: rootNode).map { try $0.get() }
+    ) throws(ASN1MetaError) -> [T] {
+        try self.lazySet(of: type, identifier: identifier, rootNode: rootNode).map {
+            (result) throws(ASN1MetaError) -> T in
+            try result.get()
+        }
     }
 
     /// Parse the node as an ASN.1 SET OF lazily.
@@ -178,7 +183,7 @@ extension DER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> DER.LazySetOfSequence<T> {
+    ) throws(ASN1MetaError) -> DER.LazySetOfSequence<T> {
         guard rootNode.identifier == identifier, case .constructed(let nodes) = rootNode.content else {
             throw ASN1Error.unexpectedFieldType(rootNode.identifier)
         }
@@ -187,7 +192,15 @@ extension DER {
             throw ASN1Error.invalidASN1Object(reason: "SET OF fields are not lexicographically ordered")
         }
 
-        return .init(nodes.lazy.map { node in Result { try T(derEncoded: node) } })
+        return .init(
+            nodes.lazy.map { node -> Result<T, ASN1MetaError> in
+                do throws(ASN1MetaError) {
+                    return .success(try T(derEncoded: node))
+                } catch let error {
+                    return .failure(error)
+                }
+            }
+        )
     }
 }
 
@@ -213,8 +226,8 @@ extension DER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T? {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T? {
         var localNodesCopy = nodes
         guard let node = localNodesCopy.next() else {
             // Node not present, return nil.
@@ -262,7 +275,7 @@ extension DER {
     public static func optionalImplicitlyTagged<T: DERImplicitlyTaggable>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         tag: ASN1Identifier = T.defaultIdentifier
-    ) throws -> T? {
+    ) throws(ASN1MetaError) -> T? {
         var localNodesCopy = nodes
         guard let node = localNodesCopy.next() else {
             // Node not present, return nil.
@@ -288,12 +301,12 @@ extension DER {
     ///
     /// - returns: The result of `builder` if the element was present, or `nil` if it was not.
     @inlinable
-    public static func optionalImplicitlyTagged<Result>(
+    public static func optionalImplicitlyTagged<Result, E: Error>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> Result
-    ) rethrows -> Result? {
+        _ builder: (ASN1Node) throws(E) -> Result
+    ) throws(E) -> Result? {
         var localNodesCopy = nodes
         guard let node = localNodesCopy.next() else {
             // Node not present, return nil.
@@ -332,8 +345,8 @@ extension DER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         identifier: ASN1Identifier,
         defaultValue: T,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         // A weird trick here: we only want to consume the next node _if_ it has the right tag. To achieve that,
         // we work on a copy.
         var localNodesCopy = nodes
@@ -380,9 +393,10 @@ extension DER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         identifier: ASN1Identifier,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefault(&nodes, identifier: identifier, defaultValue: defaultValue) {
-            try T(derEncoded: $0)
+            (node) throws(ASN1MetaError) -> T in
+            try T(derEncoded: node)
         }
     }
 
@@ -401,7 +415,7 @@ extension DER {
     public static func decodeDefault<T: DERImplicitlyTaggable & Equatable>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefault(&nodes, identifier: T.defaultIdentifier, defaultValue: defaultValue)
     }
 
@@ -423,8 +437,8 @@ extension DER {
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
         defaultValue: T,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         guard let result = try optionalExplicitlyTagged(&nodes, tagNumber: tagNumber, tagClass: tagClass, builder)
         else {
             return defaultValue
@@ -460,14 +474,14 @@ extension DER {
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefaultExplicitlyTagged(
             &nodes,
             tagNumber: tagNumber,
             tagClass: tagClass,
             defaultValue: defaultValue
-        ) {
-            try T(derEncoded: $0)
+        ) { (node) throws(ASN1MetaError) -> T in
+            try T(derEncoded: node)
         }
     }
 }
@@ -488,8 +502,8 @@ extension DER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         guard let node = nodes.next() else {
             // Node not present, throw.
             throw ASN1Error.invalidASN1Object(
@@ -515,8 +529,8 @@ extension DER {
         _ node: ASN1Node,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         let expectedNodeID = ASN1Identifier(tagWithNumber: tagNumber, tagClass: tagClass)
         guard node.identifier == expectedNodeID else {
             // Node is a mismatch, with the wrong tag.
@@ -560,7 +574,7 @@ extension DER {
     ///     - data: The DER-encoded bytes to parse.
     /// - returns: The root node in the ASN.1 tree.
     @inlinable
-    public static func parse(_ data: [UInt8]) throws -> ASN1Node {
+    public static func parse(_ data: [UInt8]) throws(ASN1MetaError) -> ASN1Node {
         return try parse(data[...])
     }
 
@@ -577,7 +591,7 @@ extension DER {
     ///     - data: The DER-encoded bytes to parse.
     /// - returns: The root node in the ASN.1 tree.
     @inlinable
-    public static func parse(_ data: ArraySlice<UInt8>) throws -> ASN1Node {
+    public static func parse(_ data: ArraySlice<UInt8>) throws(ASN1MetaError) -> ASN1Node {
         var result = try ParseResult.parse(data, encoding: .distinguished)
 
         // There will always be at least one node if the above didn't throw, so we can safely just removeFirst here.
@@ -638,11 +652,14 @@ extension DER {
         ///      - identifier: The tag for this ASN.1 node
         ///      - contentWriter: A callback that will be invoked that allows users to write their bytes into the output stream.
         @inlinable
-        public mutating func appendPrimitiveNode(
+        public mutating func appendPrimitiveNode<E: Error>(
             identifier: ASN1Identifier,
-            _ contentWriter: (inout [UInt8]) throws -> Void
-        ) rethrows {
-            try self._appendNode(identifier: identifier, constructed: false) { try contentWriter(&$0._serializedBytes) }
+            _ contentWriter: (inout [UInt8]) throws(E) -> Void
+        ) throws(E) {
+            try self._appendNode(identifier: identifier, constructed: false) {
+                (serializer: inout Serializer) throws(E) in
+                try contentWriter(&serializer._serializedBytes)
+            }
         }
 
         /// Appends a single constructed node to the content.
@@ -654,10 +671,10 @@ extension DER {
         ///      - identifier: The tag for this ASN.1 node
         ///      - contentWriter: A callback that will be invoked that allows users to write the objects contained within this constructed node.
         @inlinable
-        public mutating func appendConstructedNode(
+        public mutating func appendConstructedNode<E: Error>(
             identifier: ASN1Identifier,
-            _ contentWriter: (inout Serializer) throws -> Void
-        ) rethrows {
+            _ contentWriter: (inout Serializer) throws(E) -> Void
+        ) throws(E) {
             try self._appendNode(identifier: identifier, constructed: true, contentWriter)
         }
 
@@ -666,7 +683,7 @@ extension DER {
         /// - parameters:
         ///     node: The node to be serialized.
         @inlinable
-        public mutating func serialize<T: DERSerializable>(_ node: T) throws {
+        public mutating func serialize<T: DERSerializable>(_ node: T) throws(ASN1MetaError) {
             try node.serialize(into: &self)
         }
 
@@ -684,7 +701,7 @@ extension DER {
             _ node: T,
             explicitlyTaggedWithTagNumber tagNumber: UInt,
             tagClass: ASN1Identifier.TagClass
-        ) throws {
+        ) throws(ASN1MetaError) {
             let identifier = ASN1Identifier(tagWithNumber: tagNumber, tagClass: tagClass)
             return try self.serialize(node, explicitlyTaggedWithIdentifier: identifier)
         }
@@ -698,8 +715,9 @@ extension DER {
         public mutating func serialize<T: DERSerializable>(
             _ node: T,
             explicitlyTaggedWithIdentifier identifier: ASN1Identifier
-        ) throws {
-            try self.appendConstructedNode(identifier: identifier) { coder in
+        ) throws(ASN1MetaError) {
+            try self.appendConstructedNode(identifier: identifier) {
+                (coder: inout Serializer) throws(ASN1MetaError) in
                 try coder.serialize(node)
             }
         }
@@ -713,7 +731,7 @@ extension DER {
         /// - parameters:
         ///     node: The node to be serialized.
         @inlinable
-        public mutating func serializeOptionalImplicitlyTagged<T: DERSerializable>(_ node: T?) throws {
+        public mutating func serializeOptionalImplicitlyTagged<T: DERSerializable>(_ node: T?) throws(ASN1MetaError) {
             if let node = node {
                 try self.serialize(node)
             }
@@ -730,7 +748,7 @@ extension DER {
         public mutating func serializeOptionalImplicitlyTagged<T: DERImplicitlyTaggable>(
             _ node: T?,
             withIdentifier identifier: ASN1Identifier
-        ) throws {
+        ) throws(ASN1MetaError) {
             if let node = node {
                 try node.serialize(into: &self, withIdentifier: identifier)
             }
@@ -746,13 +764,14 @@ extension DER {
         ///     tagClass: The number of the explicit tag.
         ///     block: The block that will be invoked to encode the contents of the explicit tag.
         @inlinable
-        public mutating func serialize(
+        public mutating func serialize<E: Error>(
             explicitlyTaggedWithTagNumber tagNumber: UInt,
             tagClass: ASN1Identifier.TagClass,
-            _ block: (inout Serializer) throws -> Void
-        ) rethrows {
+            _ block: (inout Serializer) throws(E) -> Void
+        ) throws(E) {
             let identifier = ASN1Identifier(tagWithNumber: tagNumber, tagClass: tagClass)
-            try self.appendConstructedNode(identifier: identifier) { coder in
+            try self.appendConstructedNode(identifier: identifier) {
+                (coder: inout Serializer) throws(E) in
                 try block(&coder)
             }
         }
@@ -766,8 +785,9 @@ extension DER {
         public mutating func serializeSequenceOf<Elements: Sequence>(
             _ elements: Elements,
             identifier: ASN1Identifier = .sequence
-        ) throws where Elements.Element: DERSerializable {
-            try self.appendConstructedNode(identifier: identifier) { coder in
+        ) throws(ASN1MetaError) where Elements.Element: DERSerializable {
+            try self.appendConstructedNode(identifier: identifier) {
+                (coder: inout Serializer) throws(ASN1MetaError) in
                 for element in elements {
                     try coder.serialize(element)
                 }
@@ -783,11 +803,11 @@ extension DER {
         public mutating func serializeSetOf<Elements: Sequence>(
             _ elements: Elements,
             identifier: ASN1Identifier = .set
-        ) throws where Elements.Element: DERSerializable {
+        ) throws(ASN1MetaError) where Elements.Element: DERSerializable {
             // We first serialize all elements into one intermediate Serializer and
             // create ArraySlices of their binary DER representation.
             var intermediateSerializer = DER.Serializer()
-            let serializedRanges = try elements.map { element in
+            let serializedRanges = try elements.map { (element) throws(ASN1MetaError) -> Range<Int> in
                 let startIndex = intermediateSerializer.serializedBytes.endIndex
                 try intermediateSerializer.serialize(element)
                 let endIndex = intermediateSerializer.serializedBytes.endIndex
@@ -861,11 +881,11 @@ extension DER {
         // This is the base logical function that all other append methods are built on. This one has most of the logic, and doesn't
         // police what we expect to happen in the content writer.
         @inlinable
-        mutating func _appendNode(
+        mutating func _appendNode<E: Error>(
             identifier: ASN1Identifier,
             constructed: Bool,
-            _ contentWriter: (inout Serializer) throws -> Void
-        ) rethrows {
+            _ contentWriter: (inout Serializer) throws(E) -> Void
+        ) throws(E) {
             // This is a tricky game to play. We want to write the identifier and the length, but we don't know what the
             // length is here. To get around that, we _assume_ the length will be one byte, and let the writer write their content.
             // If it turns out to have been longer, we recalculate how many bytes we need and shuffle them in the buffer,
@@ -931,7 +951,7 @@ public protocol DERParseable {
     ///
     /// - parameters:
     ///     - node: The ASN.1 node representing this object.
-    init(derEncoded node: ASN1Node) throws
+    init(derEncoded node: ASN1Node) throws(ASN1MetaError)
 }
 
 extension DERParseable {
@@ -944,7 +964,7 @@ extension DERParseable {
     ///     - sequenceNodeIterator: The sequence of nodes that make up this object's parent. The first node in this collection
     ///         will be used to construct this object.
     @inlinable
-    public init(derEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator) throws {
+    public init(derEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) {
         guard let node = sequenceNodeIterator.next() else {
             throw ASN1Error.invalidASN1Object(reason: "Unable to decode \(Self.self), no ASN.1 nodes to decode")
         }
@@ -957,7 +977,7 @@ extension DERParseable {
     /// - parameters:
     ///     - derEncoded: The DER-encoded bytes representing this object.
     @inlinable
-    public init(derEncoded: [UInt8]) throws {
+    public init(derEncoded: [UInt8]) throws(ASN1MetaError) {
         self = try .init(derEncoded: DER.parse(derEncoded))
     }
 
@@ -966,7 +986,7 @@ extension DERParseable {
     /// - parameters:
     ///     - derEncoded: The DER-encoded bytes representing this object.
     @inlinable
-    public init(derEncoded: ArraySlice<UInt8>) throws {
+    public init(derEncoded: ArraySlice<UInt8>) throws(ASN1MetaError) {
         self = try .init(derEncoded: DER.parse(derEncoded))
     }
 }
@@ -981,7 +1001,7 @@ public protocol DERSerializable {
     ///
     /// - parameters:
     ///     - coder: A serializer to be used to encode the object.
-    func serialize(into coder: inout DER.Serializer) throws
+    func serialize(into coder: inout DER.Serializer) throws(ASN1MetaError)
 }
 
 /// An ASN.1 node that can tolerate having an implicit tag.
@@ -1006,14 +1026,14 @@ public protocol DERImplicitlyTaggable: DERParseable, DERSerializable {
     /// - parameters:
     ///     - derEncoded: The ASN.1 node representing this object.
     ///     - identifier: The ASN.1 identifier that `derEncoded` is expected to have.
-    init(derEncoded: ASN1Node, withIdentifier identifier: ASN1Identifier) throws
+    init(derEncoded: ASN1Node, withIdentifier identifier: ASN1Identifier) throws(ASN1MetaError)
 
     /// Serialize this object into DER-encoded ASN.1 form.
     ///
     /// - parameters:
     ///     - coder: A serializer to be used to encode the object.
     ///     - identifier: The ASN.1 identifier that this object should use to represent itself.
-    func serialize(into coder: inout DER.Serializer, withIdentifier identifier: ASN1Identifier) throws
+    func serialize(into coder: inout DER.Serializer, withIdentifier identifier: ASN1Identifier) throws(ASN1MetaError)
 }
 
 extension DERImplicitlyTaggable {
@@ -1030,7 +1050,7 @@ extension DERImplicitlyTaggable {
     public init(
         derEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator,
         withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier
-    ) throws {
+    ) throws(ASN1MetaError) {
         guard let node = sequenceNodeIterator.next() else {
             throw ASN1Error.invalidASN1Object(reason: "Unable to decode \(Self.self), no ASN.1 nodes to decode")
         }
@@ -1044,7 +1064,7 @@ extension DERImplicitlyTaggable {
     ///     - derEncoded: The DER-encoded bytes representing this object.
     ///     - identifier: The ASN.1 identifier that `derEncoded` is expected to have.
     @inlinable
-    public init(derEncoded: [UInt8], withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier) throws {
+    public init(derEncoded: [UInt8], withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier) throws(ASN1MetaError) {
         self = try .init(derEncoded: DER.parse(derEncoded), withIdentifier: identifier)
     }
 
@@ -1057,17 +1077,17 @@ extension DERImplicitlyTaggable {
     public init(
         derEncoded: ArraySlice<UInt8>,
         withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier
-    ) throws {
+    ) throws(ASN1MetaError) {
         self = try .init(derEncoded: DER.parse(derEncoded), withIdentifier: identifier)
     }
 
     @inlinable
-    public init(derEncoded: ASN1Node) throws {
+    public init(derEncoded: ASN1Node) throws(ASN1MetaError) {
         try self.init(derEncoded: derEncoded, withIdentifier: Self.defaultIdentifier)
     }
 
     @inlinable
-    public func serialize(into coder: inout DER.Serializer) throws {
+    public func serialize(into coder: inout DER.Serializer) throws(ASN1MetaError) {
         try self.serialize(into: &coder, withIdentifier: Self.defaultIdentifier)
     }
 }

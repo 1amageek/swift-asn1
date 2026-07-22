@@ -12,6 +12,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if hasFeature(Embedded)
+/// The concrete error type used by SwiftASN1 when existential errors are unavailable.
+public typealias ASN1MetaError = ASN1Error
+#else
+/// The error type used by SwiftASN1 on platforms that support existential errors.
+public typealias ASN1MetaError = any Error
+#endif
+
 /// Represents an error that may be thrown from the ``SwiftASN1`` module.
 ///
 /// This object contains both an error ``code`` and a textual reason for the error,
@@ -233,7 +241,24 @@ extension ASN1Error {
         public static let tooFewOIDComponents = ErrorCode(.tooFewOIDComponents)
 
         public var description: String {
-            return String(describing: self.backingCode)
+            switch self.backingCode {
+            case .unexpectedFieldType:
+                return "unexpectedFieldType"
+            case .invalidASN1Object:
+                return "invalidASN1Object"
+            case .invalidASN1IntegerEncoding:
+                return "invalidASN1IntegerEncoding"
+            case .truncatedASN1Field:
+                return "truncatedASN1Field"
+            case .unsupportedFieldLength:
+                return "unsupportedFieldLength"
+            case .invalidPEMDocument:
+                return "invalidPEMDocument"
+            case .invalidStringRepresentation:
+                return "invalidStringRepresentation"
+            case .tooFewOIDComponents:
+                return "tooFewOIDComponents"
+            }
         }
     }
 }

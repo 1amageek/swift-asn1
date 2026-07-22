@@ -30,12 +30,12 @@ extension BER {
 
 extension BER {
     @inlinable
-    public static func parse(_ data: [UInt8]) throws -> ASN1Node {
+    public static func parse(_ data: [UInt8]) throws(ASN1MetaError) -> ASN1Node {
         return try parse(data[...])
     }
 
     @inlinable
-    public static func parse(_ data: ArraySlice<UInt8>) throws -> ASN1Node {
+    public static func parse(_ data: ArraySlice<UInt8>) throws(ASN1MetaError) -> ASN1Node {
         var result = try ASN1.ParseResult.parse(data, encoding: .basic)
 
         // There will always be at least one node if the above didn't throw, so we can safely just removeFirst here.
@@ -79,8 +79,8 @@ extension BER {
     public static func sequence<T>(
         _ node: ASN1Node,
         identifier: ASN1Identifier,
-        _ builder: (inout ASN1NodeCollection.Iterator) throws -> T
-    ) throws -> T {
+        _ builder: (inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         return try DER.sequence(node, identifier: identifier, builder)
     }
 
@@ -98,12 +98,14 @@ extension BER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard rootNode.identifier == identifier, case .constructed(let nodes) = rootNode.content else {
             throw ASN1Error.unexpectedFieldType(rootNode.identifier)
         }
 
-        return try nodes.map { try T(berEncoded: $0) }
+        return try nodes.map { (node) throws(ASN1MetaError) -> T in
+            try T(berEncoded: node)
+        }
     }
 
     /// Parse the node as an ASN.1 SEQUENCE OF.
@@ -120,7 +122,7 @@ extension BER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         nodes: inout ASN1NodeCollection.Iterator
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard let node = nodes.next() else {
             // Not present, throw.
             throw ASN1Error.invalidASN1Object(
@@ -143,8 +145,8 @@ extension BER {
     public static func set<T>(
         _ node: ASN1Node,
         identifier: ASN1Identifier,
-        _ builder: (inout ASN1NodeCollection.Iterator) throws -> T
-    ) throws -> T {
+        _ builder: (inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         // Shhhh these two are secretly the same with identifier.
         return try sequence(node, identifier: identifier, builder)
     }
@@ -163,7 +165,7 @@ extension BER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         nodes: inout ASN1NodeCollection.Iterator
-    ) throws -> [T] {
+    ) throws(ASN1MetaError) -> [T] {
         guard let node = nodes.next() else {
             // Not present, throw.
             throw ASN1Error.invalidASN1Object(
@@ -188,8 +190,11 @@ extension BER {
         of type: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> [T] {
-        try self.lazySet(of: type, identifier: identifier, rootNode: rootNode).map { try $0.get() }
+    ) throws(ASN1MetaError) -> [T] {
+        try self.lazySet(of: type, identifier: identifier, rootNode: rootNode).map {
+            (result) throws(ASN1MetaError) -> T in
+            try result.get()
+        }
     }
 
     /// Parse the node as an ASN.1 SET OF lazily.
@@ -206,14 +211,22 @@ extension BER {
         of: T.Type = T.self,
         identifier: ASN1Identifier,
         rootNode: ASN1Node
-    ) throws -> BER.LazySetOfSequence<T> {
+    ) throws(ASN1MetaError) -> BER.LazySetOfSequence<T> {
         guard rootNode.identifier == identifier, case .constructed(let nodes) = rootNode.content else {
             throw ASN1Error.unexpectedFieldType(rootNode.identifier)
         }
 
         // BER allows unsorted SET OF
 
-        return .init(nodes.lazy.map { node in Result { try T(berEncoded: node) } })
+        return .init(
+            nodes.lazy.map { node -> Result<T, ASN1MetaError> in
+                do throws(ASN1MetaError) {
+                    return .success(try T(berEncoded: node))
+                } catch let error {
+                    return .failure(error)
+                }
+            }
+        )
     }
 }
 
@@ -238,8 +251,8 @@ extension BER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T? {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T? {
         return try DER.optionalExplicitlyTagged(&nodes, tagNumber: tagNumber, tagClass: tagClass, builder)
     }
 }
@@ -257,7 +270,7 @@ extension BER {
     public static func optionalImplicitlyTagged<T: DERImplicitlyTaggable>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         tag: ASN1Identifier = T.defaultIdentifier
-    ) throws -> T? {
+    ) throws(ASN1MetaError) -> T? {
         var localNodesCopy = nodes
         guard let node = localNodesCopy.next() else {
             // Node not present, return nil.
@@ -283,12 +296,12 @@ extension BER {
     ///
     /// - returns: The result of `builder` if the element was present, or `nil` if it was not.
     @inlinable
-    public static func optionalImplicitlyTagged<Result>(
+    public static func optionalImplicitlyTagged<Result, E: Error>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> Result
-    ) rethrows -> Result? {
+        _ builder: (ASN1Node) throws(E) -> Result
+    ) throws(E) -> Result? {
         return try DER.optionalImplicitlyTagged(&nodes, tagNumber: tagNumber, tagClass: tagClass, builder)
     }
 }
@@ -311,8 +324,8 @@ extension BER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         identifier: ASN1Identifier,
         defaultValue: T,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         // A weird trick here: we only want to consume the next node _if_ it has the right tag. To achieve that,
         // we work on a copy.
         var localNodesCopy = nodes
@@ -352,9 +365,10 @@ extension BER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         identifier: ASN1Identifier,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefault(&nodes, identifier: identifier, defaultValue: defaultValue) {
-            try T(berEncoded: $0)
+            (node) throws(ASN1MetaError) -> T in
+            try T(berEncoded: node)
         }
     }
 
@@ -373,7 +387,7 @@ extension BER {
     public static func decodeDefault<T: BERImplicitlyTaggable & Equatable>(
         _ nodes: inout ASN1NodeCollection.Iterator,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefault(&nodes, identifier: T.defaultIdentifier, defaultValue: defaultValue)
     }
 
@@ -395,8 +409,8 @@ extension BER {
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
         defaultValue: T,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         guard let result = try optionalExplicitlyTagged(&nodes, tagNumber: tagNumber, tagClass: tagClass, builder)
         else {
             return defaultValue
@@ -424,14 +438,14 @@ extension BER {
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
         defaultValue: T
-    ) throws -> T {
+    ) throws(ASN1MetaError) -> T {
         return try Self.decodeDefaultExplicitlyTagged(
             &nodes,
             tagNumber: tagNumber,
             tagClass: tagClass,
             defaultValue: defaultValue
-        ) {
-            try T(berEncoded: $0)
+        ) { (node) throws(ASN1MetaError) -> T in
+            try T(berEncoded: node)
         }
     }
 }
@@ -452,8 +466,8 @@ extension BER {
         _ nodes: inout ASN1NodeCollection.Iterator,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         return try DER.explicitlyTagged(&nodes, tagNumber: tagNumber, tagClass: tagClass, builder)
     }
 
@@ -471,8 +485,8 @@ extension BER {
         _ node: ASN1Node,
         tagNumber: UInt,
         tagClass: ASN1Identifier.TagClass,
-        _ builder: (ASN1Node) throws -> T
-    ) throws -> T {
+        _ builder: (ASN1Node) throws(ASN1MetaError) -> T
+    ) throws(ASN1MetaError) -> T {
         let expectedNodeID = ASN1Identifier(tagWithNumber: tagNumber, tagClass: tagClass)
         guard node.identifier == expectedNodeID else {
             // Node is a mismatch, with the wrong tag.
@@ -512,19 +526,19 @@ public protocol BERParseable: DERParseable {
     ///
     /// - parameters:
     ///     - node: The ASN.1 node representing this object.
-    init(berEncoded node: ASN1Node) throws
+    init(berEncoded node: ASN1Node) throws(ASN1MetaError)
 }
 
 extension BERParseable {
 
     /// By default, uses the underlying DERParseable initializer.
     @inlinable
-    public init(berEncoded node: ASN1Node) throws {
+    public init(berEncoded node: ASN1Node) throws(ASN1MetaError) {
         self = try .init(derEncoded: node)
     }
 
     @inlinable
-    public init(berEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator) throws {
+    public init(berEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator) throws(ASN1MetaError) {
         guard let node = sequenceNodeIterator.next() else {
             throw ASN1Error.invalidASN1Object(reason: "Unable to decode \(Self.self), no ASN.1 nodes to decode")
         }
@@ -537,7 +551,7 @@ extension BERParseable {
     /// - parameters:
     ///     - berEncoded: The BER-encoded bytes representing this object.
     @inlinable
-    public init(berEncoded: [UInt8]) throws {
+    public init(berEncoded: [UInt8]) throws(ASN1MetaError) {
         self = try .init(berEncoded: BER.parse(berEncoded))
     }
 
@@ -546,7 +560,7 @@ extension BERParseable {
     /// - parameters:
     ///     - berEncoded: The BER-encoded bytes representing this object.
     @inlinable
-    public init(berEncoded: ArraySlice<UInt8>) throws {
+    public init(berEncoded: ArraySlice<UInt8>) throws(ASN1MetaError) {
         self = try .init(berEncoded: BER.parse(berEncoded))
     }
 }
@@ -578,7 +592,7 @@ public protocol BERImplicitlyTaggable: BERParseable, BERSerializable, DERImplici
     /// - parameters:
     ///     - berEncoded: The ASN.1 node representing this object.
     ///     - identifier: The ASN.1 identifier that `berEncoded` is expected to have.
-    init(berEncoded: ASN1Node, withIdentifier identifier: ASN1Identifier) throws
+    init(berEncoded: ASN1Node, withIdentifier identifier: ASN1Identifier) throws(ASN1MetaError)
 }
 
 extension BERImplicitlyTaggable {
@@ -595,7 +609,7 @@ extension BERImplicitlyTaggable {
     public init(
         berEncoded sequenceNodeIterator: inout ASN1NodeCollection.Iterator,
         withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier
-    ) throws {
+    ) throws(ASN1MetaError) {
         guard let node = sequenceNodeIterator.next() else {
             throw ASN1Error.invalidASN1Object(reason: "Unable to decode \(Self.self), no ASN.1 nodes to decode")
         }
@@ -609,7 +623,7 @@ extension BERImplicitlyTaggable {
     ///     - berEncoded: The BER-encoded bytes representing this object.
     ///     - identifier: The ASN.1 identifier that `berEncoded` is expected to have.
     @inlinable
-    public init(berEncoded: [UInt8], withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier) throws {
+    public init(berEncoded: [UInt8], withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier) throws(ASN1MetaError) {
         self = try .init(berEncoded: BER.parse(berEncoded), withIdentifier: identifier)
     }
 
@@ -622,7 +636,7 @@ extension BERImplicitlyTaggable {
     public init(
         berEncoded: ArraySlice<UInt8>,
         withIdentifier identifier: ASN1Identifier = Self.defaultIdentifier
-    ) throws {
+    ) throws(ASN1MetaError) {
         self = try .init(berEncoded: BER.parse(berEncoded), withIdentifier: identifier)
     }
 
@@ -631,7 +645,7 @@ extension BERImplicitlyTaggable {
     /// - parameters:
     ///     - berEncoded: The BER-encoded bytes representing this object.
     @inlinable
-    public init(berEncoded: ASN1Node) throws {
+    public init(berEncoded: ASN1Node) throws(ASN1MetaError) {
         try self.init(berEncoded: berEncoded, withIdentifier: Self.defaultIdentifier)
     }
 }

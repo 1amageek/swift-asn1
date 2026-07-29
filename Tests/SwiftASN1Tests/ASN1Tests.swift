@@ -378,6 +378,23 @@ class ASN1Tests: XCTestCase {
         }
     }
 
+    func testSequencePropagatesBuilderDomainError() throws {
+        enum DomainError: Error {
+            case rejected
+        }
+
+        let parsed = try DER.parse([0x30, 0x00])
+
+        do {
+            _ = try DER.sequence(parsed, identifier: .sequence) { _ in
+                throw DomainError.rejected
+            }
+            XCTFail("Expected the builder error to propagate")
+        } catch DomainError.rejected {
+            // Expected.
+        }
+    }
+
     func testNodesErrorIfThereIsInsufficientData() throws {
         struct Stub: DERParseable {
             init(derEncoded node: ASN1Node) throws {

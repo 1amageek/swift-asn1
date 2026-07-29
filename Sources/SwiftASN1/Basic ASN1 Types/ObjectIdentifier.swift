@@ -95,8 +95,8 @@ public struct ASN1ObjectIdentifier: DERImplicitlyTaggable, BERImplicitlyTaggable
             } catch {
                 preconditionFailure(
                     """
-                    Error while trying to read UInt using 8 bit ASN.1 Discipline: \(error). \
-                    ASN1ObjectIdentifier validates the encoded format during initialisation and this should be impossible.
+                    Error while trying to read UInt using 8 bit ASN.1 Discipline. ASN1ObjectIdentifier validates the \
+                    encoded format during initialisation and this should be impossible.
                     """
                 )
             }

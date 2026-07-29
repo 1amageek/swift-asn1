@@ -12,13 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if hasFeature(Embedded)
-/// The concrete error type used by SwiftASN1 when existential errors are unavailable.
-public typealias ASN1MetaError = ASN1Error
-#else
-/// The error type used by SwiftASN1 on platforms that support existential errors.
+/// The error type used by SwiftASN1 on every supported target.
 public typealias ASN1MetaError = any Error
-#endif
 
 /// Represents an error that may be thrown from the ``SwiftASN1`` module.
 ///

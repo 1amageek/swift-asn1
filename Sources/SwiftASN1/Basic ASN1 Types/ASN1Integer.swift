@@ -129,10 +129,10 @@ extension ASN1IntegerRepresentable {
                 // If self is unsigned and the first byte has the top bit set, we need to prepend a 0 byte.
                 if !Self.isSigned, let topByte = integerBytes.first, topByte._topBitSet {
                     bytes.append(0)
-                    bytes.append(contentsOf: integerBytes)
+                    integerBytes._appendAllBytes(to: &bytes)
                 } else {
                     // Either self is signed, or the top bit isn't set. Either way, trim to make sure the representation is minimal.
-                    bytes.append(contentsOf: integerBytes._trimLeadingExcessBytes())
+                    integerBytes._appendMinimalIntegerBytes(to: &bytes)
                 }
             }
         }
@@ -286,6 +286,54 @@ extension Int: ASN1IntegerRepresentable {}
 extension UInt: ASN1IntegerRepresentable {}
 
 extension RandomAccessCollection where Element == UInt8 {
+    @inlinable
+    func _appendAllBytes(to output: inout [UInt8]) {
+        var index = self.startIndex
+        while index != self.endIndex {
+            output.append(self[index])
+            self.formIndex(after: &index)
+        }
+    }
+
+    @inlinable
+    func _appendMinimalIntegerBytes(to output: inout [UInt8]) {
+        var firstIncludedIndex = self.startIndex
+        guard firstIncludedIndex != self.endIndex else {
+            return
+        }
+
+        let wholeByte: UInt8
+        switch self[firstIncludedIndex] {
+        case 0:
+            wholeByte = 0
+        case 0xFF:
+            wholeByte = 0xFF
+        default:
+            self._appendAllBytes(to: &output)
+            return
+        }
+
+        while true {
+            let nextIndex = self.index(after: firstIncludedIndex)
+            guard nextIndex != self.endIndex else {
+                break
+            }
+            if self[firstIncludedIndex] != wholeByte {
+                break
+            }
+            if self[nextIndex] & 0x80 != wholeByte & 0x80 {
+                break
+            }
+            firstIncludedIndex = nextIndex
+        }
+
+        var index = firstIncludedIndex
+        while index != self.endIndex {
+            output.append(self[index])
+            self.formIndex(after: &index)
+        }
+    }
+
     @inlinable
     func _trimLeadingExcessBytes() -> SubSequence {
         var slice = self[...]

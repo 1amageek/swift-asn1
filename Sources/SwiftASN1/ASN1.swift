@@ -274,34 +274,45 @@ extension ASN1 {
         public typealias Element = Result<T, ASN1MetaError>
 
         @usableFromInline
-        typealias WrappedSequence = LazyMapSequence<LazySequence<(ASN1NodeCollection)>.Elements, Result<T, ASN1MetaError>>
+        typealias Parser = (ASN1Node) -> Element
 
         public struct Iterator: IteratorProtocol {
             @usableFromInline
-            var wrapped: WrappedSequence.Iterator
+            var nodes: ASN1NodeCollection.Iterator
+
+            @usableFromInline
+            let parser: Parser
 
             @inlinable
             mutating public func next() -> Element? {
-                wrapped.next()
+                guard let node = nodes.next() else {
+                    return nil
+                }
+                return parser(node)
             }
 
             @inlinable
-            init(_ wrapped: WrappedSequence.Iterator) {
-                self.wrapped = wrapped
+            init(nodes: ASN1NodeCollection.Iterator, parser: @escaping Parser) {
+                self.nodes = nodes
+                self.parser = parser
             }
         }
 
         @usableFromInline
-        var wrapped: WrappedSequence
+        let nodes: ASN1NodeCollection
+
+        @usableFromInline
+        let parser: Parser
 
         @inlinable
-        init(_ wrapped: WrappedSequence) {
-            self.wrapped = wrapped
+        init(nodes: ASN1NodeCollection, parser: @escaping Parser) {
+            self.nodes = nodes
+            self.parser = parser
         }
 
         @inlinable
         public func makeIterator() -> Iterator {
-            .init(wrapped.makeIterator())
+            .init(nodes: nodes.makeIterator(), parser: parser)
         }
     }
 }

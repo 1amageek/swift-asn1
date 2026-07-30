@@ -35,7 +35,8 @@ let strictConcurrencySettings: [SwiftSetting] = {
 let package = Package(
     name: "swift-asn1",
     products: [
-        .library(name: "SwiftASN1", targets: ["SwiftASN1"])
+        .library(name: "SwiftASN1", targets: ["SwiftASN1"]),
+        .executable(name: "swift-asn1-wasm-validation", targets: ["SwiftASN1WASMValidation"]),
     ],
     targets: [
         .target(
@@ -45,6 +46,11 @@ let package = Package(
         ),
         .testTarget(
             name: "SwiftASN1Tests",
+            dependencies: ["SwiftASN1"],
+            swiftSettings: strictConcurrencySettings
+        ),
+        .executableTarget(
+            name: "SwiftASN1WASMValidation",
             dependencies: ["SwiftASN1"],
             swiftSettings: strictConcurrencySettings
         ),

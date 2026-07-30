@@ -75,9 +75,12 @@ extension DER {
             throw ASN1Error.unexpectedFieldType(rootNode.identifier)
         }
 
-        return try nodes.map { (node) throws(ASN1MetaError) -> T in
-            try T(derEncoded: node)
+        var result: [T] = []
+        var iterator = nodes.makeIterator()
+        while let node = iterator.next() {
+            result.append(try T(derEncoded: node))
         }
+        return result
     }
 
     /// Parse the node as an ASN.1 SEQUENCE OF.
@@ -163,10 +166,13 @@ extension DER {
         identifier: ASN1Identifier,
         rootNode: ASN1Node
     ) throws(ASN1MetaError) -> [T] {
-        try self.lazySet(of: type, identifier: identifier, rootNode: rootNode).map {
-            (result) throws(ASN1MetaError) -> T in
-            try result.get()
+        let lazyElements = try self.lazySet(of: type, identifier: identifier, rootNode: rootNode)
+        var result: [T] = []
+        var iterator = lazyElements.makeIterator()
+        while let element = iterator.next() {
+            result.append(try element.get())
         }
+        return result
     }
 
     /// Parse the node as an ASN.1 SET OF lazily.
@@ -193,7 +199,8 @@ extension DER {
         }
 
         return .init(
-            nodes.lazy.map { node -> Result<T, ASN1MetaError> in
+            nodes: nodes,
+            parser: { node -> Result<T, ASN1MetaError> in
                 do throws(ASN1MetaError) {
                     return .success(try T(derEncoded: node))
                 } catch let error {

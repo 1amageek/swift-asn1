@@ -12,11 +12,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if canImport(Foundation) || canImport(FoundationEssentials)
-
 #if canImport(FoundationEssentials)
 import FoundationEssentials
-#else
+#elseif canImport(Foundation)
 import Foundation
 #endif
 
@@ -160,7 +158,11 @@ public struct PEMDocument: Hashable, Sendable {
     /// -----END discriminator-----
     /// ```
     public var pemString: String {
+        #if canImport(FoundationEssentials) || canImport(Foundation)
         var encoded = Data(self.derBytes).base64EncodedString()[...]
+        #else
+        var encoded = String(decoding: EmbeddedBase64.encode(self.derBytes), as: UTF8.self)[...]
+        #endif
         let pemLineCount = (encoded.utf8.count + Self.lineLength) / Self.lineLength
         var pemLines = [Substring]()
         pemLines.reserveCapacity(pemLineCount + 2)
@@ -210,6 +212,7 @@ struct LazyPEMDocument {
             throw ASN1Error.invalidPEMDocument(reason: "base64EncodedDERString is not valid UTF-8")
         }
 
+        #if canImport(FoundationEssentials) || canImport(Foundation)
         guard let data = Data(base64Encoded: base64EncodedDERString, options: .ignoreUnknownCharacters) else {
             throw ASN1Error.invalidPEMDocument(reason: "PEMDocument not correctly base64 encoded")
         }
@@ -218,6 +221,14 @@ struct LazyPEMDocument {
         }
 
         let derBytes = Array(data)
+        #else
+        guard let derBytes = EmbeddedBase64.decode(base64EncodedDERString.utf8) else {
+            throw ASN1Error.invalidPEMDocument(reason: "PEMDocument not correctly base64 encoded")
+        }
+        if derBytes.isEmpty {
+            throw ASN1Error.invalidPEMDocument(reason: "PEMDocument has an empty body")
+        }
+        #endif
         return PEMDocument(type: type, derBytes: derBytes)
     }
 }
@@ -275,7 +286,8 @@ extension Substring.UTF8View {
             let pemBegin = self[beginDiscriminatorPrefix.lowerBound..<beginDiscriminatorSuffix.upperBound]
             let pemEnd = "-----END \(beginDiscriminator)-----"
             throw ASN1Error.invalidPEMDocument(
-                reason: "PEMDocument has \(String(reflecting: String(pemBegin))) but not \(String(reflecting: pemEnd))"
+                reason:
+                    "PEMDocument has \(pemQuoted(String(decoding: pemBegin, as: UTF8.self))) but not \(pemQuoted(pemEnd))"
             )
         }
         let endDiscriminator = self[endDiscriminatorInfix]
@@ -284,7 +296,7 @@ extension Substring.UTF8View {
         guard beginDiscriminator.elementsEqual(endDiscriminator) else {
             throw ASN1Error.invalidPEMDocument(
                 reason:
-                    "PEMDocument begin and end discriminator don't match. BEGIN: \(String(reflecting: String(beginDiscriminator))). END: \(String(reflecting: String(endDiscriminator)))"
+                    "PEMDocument begin and end discriminator don't match. BEGIN: \(pemQuoted(String(decoding: beginDiscriminator, as: UTF8.self))). END: \(pemQuoted(String(decoding: endDiscriminator, as: UTF8.self)))"
             )
         }
 
@@ -407,4 +419,139 @@ enum LineEnding {
     static let CRLF = "\r\n"
 }
 
+#if !canImport(FoundationEssentials) && !canImport(Foundation)
+private enum EmbeddedBase64 {
+    private static let alphabet: [UInt8] = Array(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8
+    )
+
+    static func encode(_ bytes: [UInt8]) -> [UInt8] {
+        var output = [UInt8]()
+        output.reserveCapacity(((bytes.count + 2) / 3) * 4)
+
+        var index = 0
+        while index + 3 <= bytes.count {
+            let value =
+                UInt32(bytes[index]) << 16
+                | UInt32(bytes[index + 1]) << 8
+                | UInt32(bytes[index + 2])
+            output.append(Self.alphabet[Int((value >> 18) & 0x3f)])
+            output.append(Self.alphabet[Int((value >> 12) & 0x3f)])
+            output.append(Self.alphabet[Int((value >> 6) & 0x3f)])
+            output.append(Self.alphabet[Int(value & 0x3f)])
+            index += 3
+        }
+
+        switch bytes.count - index {
+        case 1:
+            let value = UInt32(bytes[index]) << 16
+            output.append(Self.alphabet[Int((value >> 18) & 0x3f)])
+            output.append(Self.alphabet[Int((value >> 12) & 0x3f)])
+            output.append(UInt8(ascii: "="))
+            output.append(UInt8(ascii: "="))
+        case 2:
+            let value = UInt32(bytes[index]) << 16 | UInt32(bytes[index + 1]) << 8
+            output.append(Self.alphabet[Int((value >> 18) & 0x3f)])
+            output.append(Self.alphabet[Int((value >> 12) & 0x3f)])
+            output.append(Self.alphabet[Int((value >> 6) & 0x3f)])
+            output.append(UInt8(ascii: "="))
+        default:
+            break
+        }
+
+        return output
+    }
+
+    static func decode(_ bytes: String.UTF8View) -> [UInt8]? {
+        var output = [UInt8]()
+        output.reserveCapacity((bytes.count / 4) * 3)
+        var quantum = [UInt8]()
+        quantum.reserveCapacity(4)
+        var completed = false
+
+        for byte in bytes {
+            if completed {
+                continue
+            }
+
+            if let value = Self.decodeValue(byte) {
+                quantum.append(value)
+            } else if byte == UInt8(ascii: "=") {
+                quantum.append(64)
+            } else {
+                continue
+            }
+
+            guard quantum.count == 4 else {
+                continue
+            }
+
+            guard quantum[0] < 64, quantum[1] < 64 else {
+                return nil
+            }
+
+            output.append((quantum[0] << 2) | (quantum[1] >> 4))
+            if quantum[2] == 64 {
+                guard quantum[3] == 64 else {
+                    return nil
+                }
+                completed = true
+            } else {
+                output.append((quantum[1] << 4) | (quantum[2] >> 2))
+                if quantum[3] == 64 {
+                    completed = true
+                } else {
+                    output.append((quantum[2] << 6) | quantum[3])
+                }
+            }
+            quantum.removeAll(keepingCapacity: true)
+        }
+
+        return quantum.isEmpty ? output : nil
+    }
+
+    private static func decodeValue(_ byte: UInt8) -> UInt8? {
+        switch byte {
+        case UInt8(ascii: "A")...UInt8(ascii: "Z"):
+            byte - UInt8(ascii: "A")
+        case UInt8(ascii: "a")...UInt8(ascii: "z"):
+            byte - UInt8(ascii: "a") + 26
+        case UInt8(ascii: "0")...UInt8(ascii: "9"):
+            byte - UInt8(ascii: "0") + 52
+        case UInt8(ascii: "+"):
+            62
+        case UInt8(ascii: "/"):
+            63
+        default:
+            nil
+        }
+    }
+}
 #endif
+
+private func pemQuoted(_ value: String) -> String {
+    #if hasFeature(Embedded)
+    var result = "\""
+    result.reserveCapacity(value.utf8.count + 2)
+    for character in value {
+        switch character {
+        case "\"":
+            result.append("\\\"")
+        case "\\":
+            result.append("\\\\")
+        case "\n":
+            result.append("\\n")
+        case "\r":
+            result.append("\\r")
+        case "\t":
+            result.append("\\t")
+        default:
+            result.append(character)
+        }
+    }
+    result.append("\"")
+    return result
+    #else
+    return String(reflecting: value)
+    #endif
+}

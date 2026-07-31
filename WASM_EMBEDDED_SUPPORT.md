@@ -22,6 +22,7 @@ the same products usable on ordinary WASM and Embedded WASM.
 | Error contract | Malformed input throws `ASN1Error` or `ASN1MetaError` | Preserve typed failures; do not substitute empty values |
 | Ownership | Parsed nodes and byte collections retain value ownership | Keep scoped iterators and owned output arrays |
 | Performance | Parsers traverse input once and avoid unnecessary intermediate arrays | Replace unsupported lazy/generic adapters with direct iterators, not copied node graphs |
+| Equality and hashing | Object identifiers compare and hash their encoded bytes | Traverse the existing byte slices by index so equality does not materialize arrays or enter the broken WASI `ArraySlice` equality path |
 | Platform capability | Foundation supplies Base64 where available | Use the internal Base64 backend only when neither Foundation module exists |
 | Compatibility | Native Foundation behavior remains unchanged | Capability-gate the portable backend and retain Native code paths |
 
@@ -46,14 +47,16 @@ TOOLCHAINS=org.swift.64202607231a swift run \
 
 Both target executables validate minimal signed and unsigned DER integer
 serialization, integer round trips, DER and BER `SEQUENCE OF`, lazy DER `SET OF`,
-PEM round trips, and malformed-input failure. The Embedded executable requires
-the Unicode data archive from the exact matching SDK.
+object-identifier equality across differently based slices, PEM round trips, and
+malformed-input failure. The Embedded executable requires the Unicode data
+archive from the exact matching SDK.
 
-The same production validation executable also passed natively. Two
-`xcodebuild test` attempts compiled the selected integer, set, and PEM tests,
-but the Xcode 27 beta runner was interrupted before executing tests: one runner
-reported an external interrupt and a fresh DerivedData run ended with `SIGKILL`.
-Those XCTest results are recorded as not executed, not passed.
+The same production validation executable also passed natively. A focused
+`xcodebuild test` run executed the object-identifier equality and hash contract
+test successfully. Two earlier `xcodebuild test` attempts compiled the selected
+integer, set, and PEM tests but were interrupted before executing those tests:
+one runner reported an external interrupt and a fresh DerivedData run ended
+with `SIGKILL`. Those earlier XCTest selections remain recorded as not executed.
 
 ## Native performance
 

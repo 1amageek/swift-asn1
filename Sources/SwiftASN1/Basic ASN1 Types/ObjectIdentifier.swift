@@ -140,7 +140,34 @@ public struct ASN1ObjectIdentifier: DERImplicitlyTaggable, BERImplicitlyTaggable
     }
 }
 
-extension ASN1ObjectIdentifier: Hashable {}
+extension ASN1ObjectIdentifier: Hashable {
+    @inlinable
+    public static func == (lhs: ASN1ObjectIdentifier, rhs: ASN1ObjectIdentifier) -> Bool {
+        guard lhs.bytes.count == rhs.bytes.count else {
+            return false
+        }
+
+        var lhsIndex = lhs.bytes.startIndex
+        var rhsIndex = rhs.bytes.startIndex
+        while lhsIndex < lhs.bytes.endIndex {
+            guard lhs.bytes[lhsIndex] == rhs.bytes[rhsIndex] else {
+                return false
+            }
+            lhsIndex += 1
+            rhsIndex += 1
+        }
+        return true
+    }
+
+    @inlinable
+    public func hash(into hasher: inout Hasher) {
+        var index = self.bytes.startIndex
+        while index < self.bytes.endIndex {
+            hasher.combine(self.bytes[index])
+            index += 1
+        }
+    }
+}
 
 extension ASN1ObjectIdentifier: Sendable {}
 

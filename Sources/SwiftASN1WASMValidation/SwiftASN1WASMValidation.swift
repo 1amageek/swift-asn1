@@ -3,6 +3,7 @@ import SwiftASN1
 enum ValidationError: Error {
     case incorrectSerialization
     case integerSerializationMismatch
+    case objectIdentifierMismatch
     case sequenceParsingMismatch
     case roundTripMismatch
     case malformedPEMAccepted
@@ -12,11 +13,24 @@ enum ValidationError: Error {
 struct SwiftASN1WASMValidation {
     static func main() throws {
         try validateIntegerSerialization()
+        try validateObjectIdentifiers()
         try validateDERAndBERSequences()
         try validateCanonicalSerialization()
         try validateAllByteValuesRoundTrip()
         try validateMalformedInputRejection()
         print("swift-asn1 WASM validation passed")
+    }
+
+    private static func validateObjectIdentifiers() throws {
+        let original: ASN1ObjectIdentifier = [1, 2, 840, 113_549, 1, 1, 11]
+        var serializer = DER.Serializer()
+        try serializer.serialize(original)
+        let parsed = try ASN1ObjectIdentifier(derEncoded: serializer.serializedBytes)
+        let distinct: ASN1ObjectIdentifier = [1, 2, 840, 113_549, 1, 1, 12]
+
+        guard original == parsed, original != distinct else {
+            throw ValidationError.objectIdentifierMismatch
+        }
     }
 
     private static func validateIntegerSerialization() throws {

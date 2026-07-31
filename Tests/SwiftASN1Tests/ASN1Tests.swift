@@ -1267,6 +1267,19 @@ class ASN1Tests: XCTestCase {
         XCTAssertEqual(oidFromString.oidComponents, [1, 2, 865, 11241, 3])
     }
 
+    func testOIDHashingMatchesEquality() throws {
+        let original: ASN1ObjectIdentifier = [1, 2, 840, 113_549, 1, 1, 11]
+        var serializer = DER.Serializer()
+        try serializer.serialize(original)
+        let parsed = try ASN1ObjectIdentifier(derEncoded: serializer.serializedBytes)
+        let distinct: ASN1ObjectIdentifier = [1, 2, 840, 113_549, 1, 1, 12]
+
+        XCTAssertEqual(original, parsed)
+        XCTAssertNotEqual(original, distinct)
+        XCTAssertTrue(Set([original]).contains(parsed))
+        XCTAssertFalse(Set([original]).contains(distinct))
+    }
+
     func testOIDStringInitializerInvalid() {
         XCTAssertThrowsError(try ASN1ObjectIdentifier(dotRepresentation: "1..2.865.11241.3")) { error in
             XCTAssertEqual((error as? ASN1Error)?.code, .invalidStringRepresentation)

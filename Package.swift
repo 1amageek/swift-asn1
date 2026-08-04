@@ -46,7 +46,7 @@ let package = Package(
         .executable(name: "swift-asn1-wasm-validation", targets: ["SwiftASN1WASMValidation"]),
     ],
     dependencies: [
-        .package(name: "swift-ssl", path: "../swift-ssl")
+        .package(name: "swift-ssl", url: "https://github.com/1amageek/swift-ssl.git", branch: "main")
     ],
     targets: [
         .target(

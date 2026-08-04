@@ -580,7 +580,6 @@ extension DER {
     /// - parameters:
     ///     - data: The DER-encoded bytes to parse.
     /// - returns: The root node in the ASN.1 tree.
-    @inlinable
     public static func parse(_ data: [UInt8]) throws(ASN1MetaError) -> ASN1Node {
         return try parse(data[...])
     }
@@ -597,8 +596,10 @@ extension DER {
     /// - parameters:
     ///     - data: The DER-encoded bytes to parse.
     /// - returns: The root node in the ASN.1 tree.
-    @inlinable
     public static func parse(_ data: ArraySlice<UInt8>) throws(ASN1MetaError) -> ASN1Node {
+#if SWIFT_ASN1_SSL_BACKEND
+        return try SSLASN1DERBackend.parse(data)
+#else
         var result = try ParseResult.parse(data, encoding: .distinguished)
 
         // There will always be at least one node if the above didn't throw, so we can safely just removeFirst here.
@@ -625,6 +626,7 @@ extension DER {
         precondition(result.nodes.count == 0, "ASN1ParseResult unexpectedly allowed multiple root nodes")
 
         return rootNode
+#endif
     }
 }
 

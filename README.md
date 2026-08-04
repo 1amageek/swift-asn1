@@ -27,13 +27,21 @@ This module provides several moving pieces:
 
 These moving pieces combine to provide support for the DER representation of ASN.1 suitable for a wide range of cryptographic uses.
 
+## Pure Swift backend boundary
+
+The development package routes strict `DER.parse` through `swift-ssl`'s
+`SSLASN1.DERCursor` and `SSLCore.ParsingBudget`, then reconstructs the existing
+`ASN1Node` tree at the public API boundary. The compatibility tree is the only
+owned copy; scoped SSLASN1 views never escape. BER parsing and DER serialization
+remain in this package until their corresponding backend adapters are migrated.
+
 ## Getting Started
 
 To use swift-asn1, add the following dependency to your Package.swift:
 
  ```swift
  dependencies: [
-     .package(url: "https://github.com/apple/swift-asn1.git", .upToNextMajor(from: "1.0.0"))
+     .package(url: "https://github.com/1amageek/swift-asn1.git", .upToNextMajor(from: "1.0.0"))
  ]
  ```
 
@@ -45,5 +53,5 @@ To use swift-asn1, add the following dependency to your Package.swift:
  ]
  ```
 
-Consult [the documentation](https://swiftpackageindex.com/apple/swift-asn1/main/documentation/swiftasn1) for
+Consult [the documentation](https://swiftpackageindex.com/1amageek/swift-asn1/main/documentation/swiftasn1) for
 examples of how to use the code. A number of examples are also present in the repository itself.

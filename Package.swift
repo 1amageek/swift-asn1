@@ -1,4 +1,4 @@
-// swift-tools-version:6.1
+// swift-tools-version: 6.4
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the SwiftASN1 open source project
@@ -34,15 +34,30 @@ let strictConcurrencySettings: [SwiftSetting] = {
 
 let package = Package(
     name: "swift-asn1",
+    platforms: [
+        .macOS(.v26),
+        .iOS(.v26),
+        .watchOS(.v26),
+        .tvOS(.v26),
+        .visionOS(.v26),
+    ],
     products: [
         .library(name: "SwiftASN1", targets: ["SwiftASN1"]),
         .executable(name: "swift-asn1-wasm-validation", targets: ["SwiftASN1WASMValidation"]),
     ],
+    dependencies: [
+        .package(name: "swift-ssl", path: "../swift-ssl")
+    ],
     targets: [
         .target(
             name: "SwiftASN1",
+            dependencies: [
+                .product(name: "SSLASN1", package: "swift-ssl")
+            ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: strictConcurrencySettings
+            swiftSettings: strictConcurrencySettings + [
+                .define("SWIFT_ASN1_SSL_BACKEND")
+            ]
         ),
         .testTarget(
             name: "SwiftASN1Tests",

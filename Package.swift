@@ -55,9 +55,7 @@ let package = Package(
                 .product(name: "SSLASN1", package: "swift-ssl")
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: strictConcurrencySettings + [
-                .define("SWIFT_ASN1_SSL_BACKEND")
-            ]
+            swiftSettings: strictConcurrencySettings
         ),
         .testTarget(
             name: "SwiftASN1Tests",

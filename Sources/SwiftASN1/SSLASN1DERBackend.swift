@@ -1,4 +1,3 @@
-#if SWIFT_ASN1_SSL_BACKEND
 import SSLCore
 import SSLASN1
 
@@ -181,4 +180,3 @@ enum SSLASN1DERBackend {
         }
     }
 }
-#endif

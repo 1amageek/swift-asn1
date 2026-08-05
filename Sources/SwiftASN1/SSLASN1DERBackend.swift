@@ -2,10 +2,10 @@
 import SSLCore
 import SSLASN1
 
-/// Strict DER parser adapter used while SwiftASN1 migrates its public node
-/// model onto the canonical SSLASN1 cursor. The adapter preserves the
-/// SwiftASN1 node shape for existing certificate consumers; it does not expose
-/// SSLASN1's scoped views as escaping public values.
+/// Strict DER parser adapter that preserves SwiftASN1's public node shape for
+/// existing certificate consumers while delegating byte-level parsing to the
+/// canonical SSLASN1 cursor. It does not expose SSLASN1's scoped views as
+/// escaping public values.
 enum SSLASN1DERBackend {
     private static let maximumInputByteCount = 16 * 1024 * 1024
 

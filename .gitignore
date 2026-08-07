@@ -12,5 +12,6 @@ DerivedData
 .swiftpm
 **/gyb.pyc
 /out
+/.test-artifacts
 
 .*.sw[nop]
